@@ -1,12 +1,13 @@
 import Foundation
 import LottieHarvestCore
 
-/// Builds a self-contained, static HTML gallery from harvested catalog entries.
+/// Builds a scalable, static gallery site from harvested catalog entries.
 ///
-/// Cards are baked in at generation time (no server needed → works on GitHub
-/// Pages). Lottie players lazy-load via IntersectionObserver so a few hundred
-/// animations don't all fetch on open. The player `src` points at the open
-/// LottieFiles asset CDN, so the gallery is metadata-light.
+/// Emits four files into an output directory:
+///   `index.html` (shell), `style.css`, `app.js`, `data.json` (one record per
+/// animation). All rendering (category tabs, search, pagination, lazy player
+/// loading) happens client-side, so the site scales to thousands of animations
+/// — only `data.json` grows, and pagination bounds DOM/player cost.
 enum GalleryBuilder {
 
     struct Card: Sendable {
@@ -14,6 +15,7 @@ enum GalleryBuilder {
         let name: String
         let author: String?
         let downloads: Int?
+        let collection: String?
         let pageURL: URL?
         let lottieURL: URL?
         let jsonURL: URL?
@@ -27,17 +29,15 @@ enum GalleryBuilder {
             let dotLottie = group.first { $0.kind == .dotLottie }
             let json = group.first { $0.kind == .json }
             let meta = (dotLottie ?? json ?? group.first)?.meta
-            let primary = dotLottie ?? json ?? group.first
-            guard let primary else { return nil }
-            // Prefer JSON for the player (lottie-player renders .json everywhere);
-            // fall back to the dotLottie URL with dotlottie-player.
             let useJSON = json != nil
-            let playerURL = (useJSON ? json?.url : dotLottie?.url) ?? primary.url
+            let playerURL = (useJSON ? json?.url : dotLottie?.url)
+                ?? (dotLottie ?? json ?? group.first)!.url
             return Card(
-                id: primary.animationId,
-                name: meta?.name ?? primary.stem,
+                id: (dotLottie ?? json ?? group.first)!.animationId,
+                name: meta?.name ?? (dotLottie ?? json)!.stem,
                 author: meta?.author,
                 downloads: meta?.downloads,
+                collection: meta?.collection,
                 pageURL: meta?.pageURL,
                 lottieURL: dotLottie?.url,
                 jsonURL: json?.url,
@@ -48,115 +48,202 @@ enum GalleryBuilder {
         .sorted { ($0.downloads ?? -1) > ($1.downloads ?? -1) }
     }
 
-    static func html(title: String, cards: [Card]) -> String {
-        let cardsHTML = cards.map { card(for: $0) }.joined(separator: "\n")
-        return """
+    /// Write the full site to `dir` (created if needed).
+    static func write(to dir: URL, title: String) throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Self.indexHTML(title: title).write(to: dir.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        try Self.css.write(to: dir.appendingPathComponent("style.css"), atomically: true, encoding: .utf8)
+        try Self.js.write(to: dir.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
+    }
+
+    static func dataJSON(cards: [Card]) throws -> Data {
+        let records: [[String: Any]] = cards.map { c in
+            [
+                "id": c.id,
+                "name": c.name,
+                "author": c.author ?? "",
+                "downloads": c.downloads ?? -1,
+                "collection": c.collection ?? "",
+                "page": c.pageURL?.absoluteString ?? "",
+                "lottie": c.lottieURL?.absoluteString ?? "",
+                "json": c.jsonURL?.absoluteString ?? "",
+                "src": c.playerURL.absoluteString,
+                "dot": c.playerIsDotLottie,
+            ]
+        }
+        return try JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
+    }
+
+    // MARK: - index.html
+
+    private static func indexHTML(title: String) -> String {
+        """
         <!doctype html>
         <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escape(title))</title>
+        <link rel="stylesheet" href="style.css">
         <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
         <script src="https://unpkg.com/@dotlottie/lottie-player@latest/dist/dotlottie-player.js"></script>
-        <style>
-          :root { --bg:#0b0d10; --panel:#14181d; --ink:#e6e9ee; --dim:#8b94a1; --accent:#7c5cff; }
-          * { box-sizing:border-box; }
-          body { margin:0; background:var(--bg); color:var(--ink);
-                 font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; }
-          header { position:sticky; top:0; z-index:5; backdrop-filter:blur(12px);
-                   background:rgba(11,13,16,.78); border-bottom:1px solid #232831; padding:16px 20px; }
-          header h1 { margin:0; font-size:18px; letter-spacing:.2px; }
-          header .sub { color:var(--dim); font-size:13px; margin-top:3px; }
-          header input { margin-top:12px; width:100%; max-width:520px; padding:10px 14px;
-                         border-radius:10px; border:1px solid #2a313c; background:#0f1216; color:var(--ink); font-size:14px; }
-          main { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
-                 gap:14px; padding:18px; max-width:1400px; margin:0 auto; }
-          .card { background:var(--panel); border:1px solid #232831; border-radius:14px; overflow:hidden;
-                  display:flex; flex-direction:column; }
-          .card.hide { display:none; }
-          .player { aspect-ratio:1/1; display:grid; place-items:center; background:
-                    radial-gradient(120% 120% at 50% 0%, #1a2028, #10141a); }
-          .player lottie-player, .player dotlottie-player { width:72%; height:72%; }
-          .meta { padding:11px 13px 8px; }
-          .name { font-size:13.5px; font-weight:600; line-height:1.25; overflow:hidden;
-                  text-overflow:ellipsis; white-space:nowrap; }
-          .author { color:var(--dim); font-size:11.5px; margin-top:2px;
-                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-          .stats { color:var(--dim); font-size:11px; margin-top:6px; }
-          .links { display:flex; gap:6px; padding:0 13px 13px; margin-top:auto; flex-wrap:wrap; }
-          .links a { font-size:11px; padding:5px 9px; border-radius:8px; text-decoration:none;
-                     color:var(--ink); background:#1c222b; border:1px solid #283039; }
-          .links a:hover { border-color:var(--accent); color:#fff; }
-          footer { text-align:center; color:var(--dim); font-size:12px; padding:30px 16px 50px; }
-          footer a { color:var(--dim); }
-        </style>
         </head>
         <body>
         <header>
           <h1>\(escape(title))</h1>
-          <div class="sub" id="count">\(cards.count) animations · rendered live from the LottieFiles asset CDN</div>
+          <div class="sub" id="count">Loading…</div>
+          <nav id="tabs" class="tabs"></nav>
           <input id="q" type="search" placeholder="Filter by name or author…" autocomplete="off">
         </header>
-        <main id="grid">
-        \(cardsHTML)
-        </main>
+        <main id="grid" class="grid"></main>
+        <nav id="pager" class="pager"></nav>
         <footer>Generated by <a href="https://github.com/Ripnrip/lottie-harvest">lottie-harvest</a> ·
                 animations © their respective authors on LottieFiles</footer>
-        <script>
-          // Lazy-load players when they scroll into view.
-          const io = new IntersectionObserver((es) => {
-            es.forEach(e => {
-              if (!e.isIntersecting) return;
-              const el = e.target;
-              if (!el.hasAttribute('src')) el.setAttribute('src', el.dataset.src);
-              io.unobserve(el);
-            });
-          }, { rootMargin: '300px' });
-          document.querySelectorAll('[data-src]').forEach(el => io.observe(el));
-          // Filter.
-          const grid = document.getElementById('grid');
-          const q = document.getElementById('q');
-          const count = document.getElementById('count');
-          const total = \(cards.count);
-          q.addEventListener('input', () => {
-            const t = q.value.trim().toLowerCase();
-            let shown = 0;
-            grid.querySelectorAll('.card').forEach(c => {
-              const hay = (c.dataset.name + ' ' + c.dataset.author).toLowerCase();
-              const ok = !t || hay.includes(t);
-              c.classList.toggle('hide', !ok); if (ok) shown++;
-            });
-            count.textContent = shown + ' / ' + total + ' animations · rendered live from the LottieFiles asset CDN';
-          });
-        </script>
+        <script src="app.js"></script>
         </body>
         </html>
         """
     }
 
-    private static func card(for c: Card) -> String {
-        let tag = c.playerIsDotLottie ? "dotlottie-player" : "lottie-player"
-        let player = """
-        <\(tag) data-src="\(c.playerURL.absoluteString)" background="transparent" autoplay loop speed="1"></\(tag)>
-        """
-        let author = c.author.map { "<div class=\"author\">by \(escape($0))</div>" } ?? ""
-        let stats = c.downloads.map { "<div class=\"stats\">⬇ \($0) downloads</div>" } ?? ""
-        var links: [String] = []
-        if let page = c.pageURL { links.append("<a href=\"\(page.absoluteString)\" target=\"_blank\" rel=\"noopener\">Page</a>") }
-        if let l = c.lottieURL { links.append("<a href=\"\(l.absoluteString)\" target=\"_blank\" rel=\"noopener\">.lottie</a>") }
-        if let j = c.jsonURL { links.append("<a href=\"\(j.absoluteString)\" target=\"_blank\" rel=\"noopener\">.json</a>") }
-        return """
-        <div class="card" data-name="\(escape(c.name))" data-author="\(escape(c.author ?? ""))">
-          <div class="player">\(player)</div>
-          <div class="meta">
-            <div class="name">\(escape(c.name))</div>
-            \(author)\(stats)
-          </div>
-          <div class="links">\(links.joined(separator: ""))</div>
-        </div>
-        """
+    // MARK: - style.css
+
+    private static let css = #"""
+    :root { --bg:#0b0d10; --panel:#14181d; --ink:#e6e9ee; --dim:#8b94a1; --accent:#7c5cff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink);
+           font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; }
+    a { color:var(--accent); }
+    header { position:sticky; top:0; z-index:5; backdrop-filter:blur(12px);
+             background:rgba(11,13,16,.82); border-bottom:1px solid #232831; padding:16px 20px 10px; }
+    header h1 { margin:0; font-size:18px; }
+    header .sub { color:var(--dim); font-size:13px; margin:4px 0 12px; }
+    .tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+    .tabs button { font:inherit; font-size:12.5px; color:var(--ink); cursor:pointer;
+                   padding:6px 11px; border-radius:999px; border:1px solid #2a313c; background:#0f1216; }
+    .tabs button .n { color:var(--dim); margin-left:4px; font-size:11px; }
+    .tabs button:hover { border-color:#3a4452; }
+    .tabs button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .tabs button.active .n { color:rgba(255,255,255,.75); }
+    header input { width:100%; max-width:560px; padding:10px 14px; border-radius:10px;
+                   border:1px solid #2a313c; background:#0f1216; color:var(--ink); font-size:14px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+            gap:14px; padding:18px; max-width:1400px; margin:0 auto; }
+    .card { background:var(--panel); border:1px solid #232831; border-radius:14px; overflow:hidden;
+            display:flex; flex-direction:column; }
+    .player { aspect-ratio:1/1; display:grid; place-items:center;
+              background:radial-gradient(120% 120% at 50% 0%, #1a2028, #10141a); }
+    .player lottie-player, .player dotlottie-player { width:72%; height:72%; }
+    .meta { padding:11px 13px 8px; }
+    .name { font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .author { color:var(--dim); font-size:11.5px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .stats { color:var(--dim); font-size:11px; margin-top:6px; }
+    .links { display:flex; gap:6px; padding:0 13px 13px; margin-top:auto; flex-wrap:wrap; }
+    .links a { font-size:11px; padding:5px 9px; border-radius:8px; text-decoration:none;
+               color:var(--ink); background:#1c222b; border:1px solid #283039; }
+    .links a:hover { border-color:var(--accent); color:#fff; }
+    .pager { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:6px 16px 40px; }
+    .pager button { font:inherit; font-size:13px; color:var(--ink); cursor:pointer; min-width:34px;
+                    padding:7px 9px; border-radius:9px; border:1px solid #2a313c; background:#0f1216; }
+    .pager button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .pager button:disabled { opacity:.4; cursor:default; }
+    footer { text-align:center; color:var(--dim); font-size:12px; padding:10px 16px 50px; }
+    """#
+
+    // MARK: - app.js
+
+    private static let js = #"""
+    const PER = 48;
+    let DATA = [], cat = 'all', page = 0, q = '';
+    const $ = (id) => document.getElementById(id);
+    const grid = $('grid'), pager = $('pager'), tabs = $('tabs'), count = $('count'), qEl = $('q');
+
+    async function init() {
+      try {
+        DATA = await (await fetch('data.json', { cache: 'no-store' })).json();
+      } catch (e) { count.textContent = 'Failed to load data.json'; return; }
+      buildTabs(); render();
     }
+
+    function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    function collections() {
+      const m = {};
+      DATA.forEach(c => { const k = c.collection || 'misc'; m[k] = (m[k] || 0) + 1; });
+      return Object.entries(m).sort((a, b) => b[1] - a[1]);
+    }
+
+    function buildTabs() {
+      const entries = [['all', DATA.length], ...collections()];
+      tabs.innerHTML = entries.map(([k, n]) =>
+        `<button data-cat="${esc(k)}" class="${k === cat ? 'active' : ''}">${esc(k)}<span class="n">${n}</span></button>`
+      ).join('');
+      tabs.querySelectorAll('button').forEach(b => b.onclick = () => {
+        cat = b.dataset.cat; page = 0; updateActive(); render();
+      });
+    }
+    function updateActive() { tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.cat === cat)); }
+
+    function matchQ(c) { if (!q) return true; return (c.name + ' ' + (c.author || '')).toLowerCase().includes(q); }
+    function filt() { return DATA.filter(c => (cat === 'all' || (c.collection || 'misc') === cat) && matchQ(c)); }
+
+    function cardHTML(c) {
+      const tag = c.dot ? 'dotlottie-player' : 'lottie-player';
+      const links = [
+        c.page ? `<a href="${esc(c.page)}" target="_blank" rel="noopener">Page</a>` : '',
+        c.lottie ? `<a href="${esc(c.lottie)}" target="_blank" rel="noopener">.lottie</a>` : '',
+        c.json ? `<a href="${esc(c.json)}" target="_blank" rel="noopener">.json</a>` : '',
+      ].join('');
+      const dl = (c.downloads >= 0) ? `<div class="stats">⬇ ${c.downloads}</div>` : '';
+      return `<div class="card">
+        <div class="player"><${tag} data-src="${esc(c.src)}" background="transparent" autoplay loop speed="1"></${tag}></div>
+        <div class="meta"><div class="name">${esc(c.name)}</div><div class="author">by ${esc(c.author || 'unknown')}</div>${dl}</div>
+        <div class="links">${links}</div></div>`;
+    }
+
+    function buildPager(pages) {
+      if (pages <= 1) { pager.innerHTML = ''; return; }
+      const win = 2; let btns = [];
+      btns.push(`<button data-p="prev" ${page === 0 ? 'disabled' : ''}>‹</button>`);
+      for (let p = 0; p < pages; p++) {
+        if (p === 0 || p === pages - 1 || (p >= page - win && p <= page + win)) {
+          btns.push(`<button data-p="${p}" class="${p === page ? 'active' : ''}">${p + 1}</button>`);
+        } else if (btns[btns.length - 1].indexOf('…') === -1) {
+          btns.push(`<button disabled>…</button>`);
+        }
+      }
+      btns.push(`<button data-p="next" ${page === pages - 1 ? 'disabled' : ''}>›</button>`);
+      pager.innerHTML = btns.join('');
+      pager.querySelectorAll('button[data-p]').forEach(b => b.onclick = () => {
+        if (b.disabled) return;
+        const v = b.dataset.p;
+        page = v === 'prev' ? page - 1 : v === 'next' ? page + 1 : +v;
+        render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+
+    let io;
+    function observe() {
+      if (!io) io = new IntersectionObserver((es) => {
+        es.forEach(e => { if (!e.isIntersecting) return; const el = e.target;
+          if (!el.hasAttribute('src')) el.setAttribute('src', el.dataset.src); io.unobserve(el); });
+      }, { rootMargin: '300px' });
+      document.querySelectorAll('[data-src]').forEach(el => io.observe(el));
+    }
+
+    function render() {
+      const f = filt();
+      const pages = Math.max(1, Math.ceil(f.length / PER));
+      if (page >= pages) page = pages - 1; if (page < 0) page = 0;
+      grid.innerHTML = f.slice(page * PER, (page + 1) * PER).map(cardHTML).join('');
+      const where = cat === 'all' ? '' : ` in ${esc(cat)}`;
+      const what = q ? ` matching “${esc(q)}”` : '';
+      count.textContent = `${f.length} animations${where}${what}`;
+      buildPager(pages); observe();
+    }
+
+    qEl.oninput = () => { q = qEl.value.trim().toLowerCase(); page = 0; render(); };
+    init();
+    """#
 
     private static func escape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")

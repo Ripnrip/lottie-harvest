@@ -1,0 +1,68 @@
+# LottieHarvest — weekly gallery refresh + redeploy to gh-pages.
+#
+# - Pulls fresh animations (catalog grows, idempotent across runs)
+# - Regenerates the multi-file gallery site
+# - Commits the grown catalog back to main
+# - Force-deploys the site to the `gh-pages` branch
+#
+# Runs weekly (Mon 08:17 UTC) and on manual dispatch.
+
+name: refresh-gallery
+
+on:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-gallery.yml'
+      - 'Sources/**'
+      - 'Package.swift'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-gallery
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release
+        run: swift build -c release
+
+      - name: Harvest fresh animations (catalog grows, idempotent)
+        run: |
+          BIN=.build/release/lottie-harvest
+          "$BIN" browse recent   --limit 60 --format both --concurrency 10 --out gallery
+          "$BIN" browse popular  --limit 80 --format both --concurrency 10 --out gallery
+          "$BIN" search loading  --limit 20 --format both --concurrency 10 --out gallery
+          "$BIN" search success  --limit 20 --format both --concurrency 10 --out gallery
+          "$BIN" search check    --limit 15 --format both --concurrency 10 --out gallery
+          "$BIN" search arrow    --limit 15 --format both --concurrency 10 --out gallery
+          "$BIN" search heart    --limit 12 --format both --concurrency 10 --out gallery
+
+      - name: Regenerate gallery site
+        run: |
+          .build/release/lottie-harvest gallery \
+            --catalog gallery/catalog.jsonl \
+            --output gallery/site \
+            --title "Lottie Harvest — Animated Icon Gallery"
+
+      - name: Commit catalog growth to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gallery/catalog.jsonl
+          git commit -m "gallery: weekly catalog refresh [skip ci]" || echo "no catalog changes"
+          git push
+
+      - name: Deploy site to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: swift Scripts/deploy-gallery.swift gallery/site

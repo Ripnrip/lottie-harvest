@@ -50,7 +50,8 @@ public struct GraphQLSearcher: Sendable {
             operation: operation,
             connectionField: "searchPublicAnimations",
             variables: ["q": query],
-            nodeLimit: limit
+            nodeLimit: limit,
+            collection: query
         )
     }
 
@@ -103,11 +104,13 @@ public struct GraphQLSearcher: Sendable {
             """
         }
         _ = hasCategory
+        let collectionLabel = collection == .curated ? (category ?? "curated") : collection.rawValue
         return await paginate(
             operation: operation,
             connectionField: collection.field,
             variables: baseVars,
-            nodeLimit: limit
+            nodeLimit: limit,
+            collection: collectionLabel
         )
     }
 
@@ -117,7 +120,8 @@ public struct GraphQLSearcher: Sendable {
         operation: String,
         connectionField: String,
         variables: [String: Any],
-        nodeLimit: Int?
+        nodeLimit: Int?,
+        collection: String
     ) async -> [Animation] {
         var all: [Animation] = []
         var cursor: Any = NSNull()
@@ -146,7 +150,7 @@ public struct GraphQLSearcher: Sendable {
             for edge in edges {
                 guard let node = edge["node"] as? [String: Any] else { continue }
                 nodes += 1
-                if let anim = animation(from: node) { all.append(anim) }
+                if let anim = animation(from: node, collection: collection) { all.append(anim) }
                 if let nodeLimit, nodes >= nodeLimit { break }
             }
 
@@ -181,7 +185,7 @@ public struct GraphQLSearcher: Sendable {
     }
 
     /// Build an `Animation` (variants + metadata) from a GraphQL node.
-    private func animation(from node: [String: Any]) -> Animation? {
+    private func animation(from node: [String: Any], collection: String) -> Animation? {
         guard let uuid = node["uuid"] as? String, !uuid.isEmpty else { return nil }
         var variants: [LottieAsset] = []
         for key in ["lottieUrl", "jsonUrl", "imageUrl"] {
@@ -203,7 +207,8 @@ public struct GraphQLSearcher: Sendable {
             frameRate: (node["frameRate"] as? Double) ?? (node["frameRate"] as? Int).map(Double.init),
             publishedAt: node["publishedAt"] as? String,
             pageURL: URL(string: "https://lottiefiles.com/animation/\(slug)"),
-            thumbnailURL: (node["imageUrl"] as? String).flatMap(URL.init(string:))
+            thumbnailURL: (node["imageUrl"] as? String).flatMap(URL.init(string:)),
+            collection: collection
         )
         return Animation(id: uuid, variants: variants, meta: meta)
     }

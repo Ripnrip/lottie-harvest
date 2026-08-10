@@ -350,19 +350,18 @@ extension LottieHarvestCLI {
         @Option(name: .long, help: "Gallery title.")
         var title: String = "Lottie Harvest Gallery"
 
-        @Option(name: .long, help: "Output HTML path (default: <out>/index.html).")
-        var output: String?
+        @Option(name: .long, help: "Output directory for the gallery site (index.html + style.css + app.js + data.json).")
+        var output: String = "gallery/site"
 
         func run() async throws {
             let catalog = await Catalog(fileURL: globals.catalogURL())
             let entries = await catalog.snapshot()
             let cards = GalleryBuilder.cards(from: entries)
-            let html = GalleryBuilder.html(title: title, cards: cards)
-            let outURL = URL(fileURLWithPath: output ?? "\(globals.out)/index.html")
-            try FileManager.default.createDirectory(
-                at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try html.write(to: outURL, atomically: true, encoding: .utf8)
-            print("🖼️  gallery: \(cards.count) cards → \(outURL.path)")
+            let dir = URL(fileURLWithPath: output, isDirectory: true)
+            try GalleryBuilder.write(to: dir, title: title)
+            let data = try GalleryBuilder.dataJSON(cards: cards)
+            try data.write(to: dir.appendingPathComponent("data.json"), options: .atomic)
+            print("🖼️  gallery: \(cards.count) cards → \(dir.path)/")
         }
     }
 }

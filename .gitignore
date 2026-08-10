@@ -3,3 +3,10 @@
 Package.resolved
 *.xcodeproj
 DerivedData/
+
+# Harvested binaries are regenerated; only catalog.jsonl is versioned.
+gallery/lottiefilesV2/
+gallery/lottiefilesPackages/
+gallery/lottieHost/
+gallery/iconscout/
+gallery/site/

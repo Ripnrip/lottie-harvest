@@ -121,14 +121,18 @@ public struct AnimationMeta: Sendable, Codable, Equatable {
     public let publishedAt: String?      // raw ISO8601, kept as string for robustness
     public let pageURL: URL?
     public let thumbnailURL: URL?
+    /// Discovery provenance label (search term or browse collection), used to
+    /// group the gallery into category pages. `nil` for HTML/URL-list discovery.
+    public let collection: String?
 
     public init(name: String, slug: String, author: String?, authorUsername: String?,
                 downloads: Int?, likes: Int?, frameRate: Double?, publishedAt: String?,
-                pageURL: URL?, thumbnailURL: URL?) {
+                pageURL: URL?, thumbnailURL: URL?, collection: String? = nil) {
         self.name = name; self.slug = slug; self.author = author
         self.authorUsername = authorUsername; self.downloads = downloads; self.likes = likes
         self.frameRate = frameRate; self.publishedAt = publishedAt
         self.pageURL = pageURL; self.thumbnailURL = thumbnailURL
+        self.collection = collection
     }
 }
 
