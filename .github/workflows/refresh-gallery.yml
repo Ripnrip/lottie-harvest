@@ -25,13 +25,15 @@ permissions:
 
 concurrency:
   group: refresh-gallery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   refresh:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build release
         run: swift build -c release
@@ -60,6 +62,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add gallery/catalog.jsonl
           git commit -m "gallery: weekly catalog refresh [skip ci]" || echo "no catalog changes"
+          # Rebase onto any concurrent catalog commits before pushing.
+          git fetch origin main
+          git rebase origin/main || { git rebase --abort; exit 1; }
           git push
 
       - name: Deploy site to gh-pages
