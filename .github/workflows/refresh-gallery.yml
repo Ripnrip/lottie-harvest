@@ -60,7 +60,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add gallery/catalog.jsonl
+          git add gallery/catalog.jsonl gallery/site
           git commit -m "gallery: weekly catalog refresh [skip ci]" || echo "no catalog changes"
           # Rebase onto any concurrent catalog commits before pushing.
           git fetch origin main

@@ -71,7 +71,9 @@ Each card lazy-loads its player from the open LottieFiles asset CDN and shows
 name / author / downloads, with links to the LottieFiles page and the `.lottie`
 + `.json` downloads. Filter live by name or author.
 
-**Live gallery:** <https://ripnrip.github.io/lottie-harvest/> (216 animations)
+**Live gallery (Vercel):** <https://lottie-harvest-gallery.vercel.app/>
+
+Mirror (GitHub Pages): <https://ripnrip.github.io/lottie-harvest/>
 
 ## Build & test
 
