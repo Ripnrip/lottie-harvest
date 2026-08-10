@@ -9,4 +9,5 @@ gallery/lottiefilesV2/
 gallery/lottiefilesPackages/
 gallery/lottieHost/
 gallery/iconscout/
-gallery/site/
+
+.vercel/
