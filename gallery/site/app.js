@@ -40,7 +40,7 @@ function cardHTML(c) {
   ].join('');
   const dl = (c.downloads >= 0) ? `<div class="stats">⬇ ${c.downloads}</div>` : '';
   return `<div class="card">
-    <div class="player"><lottie-player data-src="${esc(c.src)}" background="transparent" autoplay loop speed="1"></lottie-player></div>
+    <div class="player"><lottie-player src="${esc(c.src)}" background="transparent" autoplay loop speed="1"></lottie-player></div>
     <div class="meta"><div class="name">${esc(c.name)}</div><div class="author">by ${esc(c.author || 'unknown')}</div>${dl}</div>
     <div class="links">${links}</div></div>`;
 }
@@ -66,13 +66,13 @@ function buildPager(pages) {
   });
 }
 
-let io;
-function observe() {
-  if (!io) io = new IntersectionObserver((es) => {
-    es.forEach(e => { if (!e.isIntersecting) return; const el = e.target;
-      if (!el.hasAttribute('src')) el.setAttribute('src', el.dataset.src); io.unobserve(el); });
-  }, { rootMargin: '300px' });
-  document.querySelectorAll('[data-src]').forEach(el => io.observe(el));
+// v2 lottie-player doesn't load from a src attribute reliably on dynamic
+// insertion, so force .load() on every player after each render.
+function loadPlayers() {
+  document.querySelectorAll('lottie-player').forEach(el => {
+    const s = el.getAttribute('src');
+    if (s && typeof el.load === 'function') el.load(s);
+  });
 }
 
 function render() {
@@ -83,7 +83,7 @@ function render() {
   const where = cat === 'all' ? '' : ` in ${esc(cat)}`;
   const what = q ? ` matching “${esc(q)}”` : '';
   count.textContent = `${f.length} animations${where}${what}`;
-  buildPager(pages); observe();
+  buildPager(pages); loadPlayers();
 }
 
 qEl.oninput = () => { q = qEl.value.trim().toLowerCase(); page = 0; render(); };
