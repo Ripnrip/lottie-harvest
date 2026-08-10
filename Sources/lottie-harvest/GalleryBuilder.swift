@@ -48,12 +48,19 @@ enum GalleryBuilder {
         .sorted { ($0.downloads ?? -1) > ($1.downloads ?? -1) }
     }
 
-    /// Write the full site to `dir` (created if needed).
-    static func write(to dir: URL, title: String) throws {
+    /// Write the full site to `dir` (created if needed). If `vendor` (the pinned
+    /// lottie-player bundle) is supplied, it is written as `lottie-player.js`
+    /// and referenced locally — making the gallery fully self-contained with
+    /// zero external script dependencies.
+    static func write(to dir: URL, title: String, vendor: Data? = nil) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try Self.indexHTML(title: title).write(to: dir.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        try Self.indexHTML(title: title, vendored: vendor != nil)
+            .write(to: dir.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
         try Self.css.write(to: dir.appendingPathComponent("style.css"), atomically: true, encoding: .utf8)
         try Self.js.write(to: dir.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
+        if let vendor {
+            try vendor.write(to: dir.appendingPathComponent("lottie-player.js"), options: .atomic)
+        }
     }
 
     static func dataJSON(cards: [Card]) throws -> Data {
@@ -76,8 +83,11 @@ enum GalleryBuilder {
 
     // MARK: - index.html
 
-    private static func indexHTML(title: String) -> String {
-        """
+    private static func indexHTML(title: String, vendored: Bool) -> String {
+        let player = vendored
+            ? #"<script src="lottie-player.js"></script>"#
+            : #"<script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.12/dist/lottie-player.js"></script>"#
+        return """
         <!doctype html>
         <html lang="en">
         <head>
@@ -85,8 +95,7 @@ enum GalleryBuilder {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escape(title))</title>
         <link rel="stylesheet" href="style.css">
-        <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
-        <script src="https://unpkg.com/@dotlottie/lottie-player@latest/dist/dotlottie-player.js"></script>
+        \(player)
         </head>
         <body>
         <header>
@@ -187,7 +196,6 @@ enum GalleryBuilder {
     function filt() { return DATA.filter(c => (cat === 'all' || (c.collection || 'misc') === cat) && matchQ(c)); }
 
     function cardHTML(c) {
-      const tag = c.dot ? 'dotlottie-player' : 'lottie-player';
       const links = [
         c.page ? `<a href="${esc(c.page)}" target="_blank" rel="noopener">Page</a>` : '',
         c.lottie ? `<a href="${esc(c.lottie)}" target="_blank" rel="noopener">.lottie</a>` : '',
@@ -195,7 +203,7 @@ enum GalleryBuilder {
       ].join('');
       const dl = (c.downloads >= 0) ? `<div class="stats">⬇ ${c.downloads}</div>` : '';
       return `<div class="card">
-        <div class="player"><${tag} data-src="${esc(c.src)}" background="transparent" autoplay loop speed="1"></${tag}></div>
+        <div class="player"><lottie-player data-src="${esc(c.src)}" background="transparent" autoplay loop speed="1"></lottie-player></div>
         <div class="meta"><div class="name">${esc(c.name)}</div><div class="author">by ${esc(c.author || 'unknown')}</div>${dl}</div>
         <div class="links">${links}</div></div>`;
     }

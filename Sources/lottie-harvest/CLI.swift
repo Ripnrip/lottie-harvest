@@ -353,15 +353,25 @@ extension LottieHarvestCLI {
         @Option(name: .long, help: "Output directory for the gallery site (index.html + style.css + app.js + data.json).")
         var output: String = "gallery/site"
 
+        @Option(name: .long, help: "Pinned lottie-player bundle to self-host (default: gallery/vendor/lottie-player.js). Pass '' to use the unpkg CDN instead.")
+        var vendor: String = "gallery/vendor/lottie-player.js"
+
         func run() async throws {
             let catalog = await Catalog(fileURL: globals.catalogURL())
             let entries = await catalog.snapshot()
             let cards = GalleryBuilder.cards(from: entries)
             let dir = URL(fileURLWithPath: output, isDirectory: true)
-            try GalleryBuilder.write(to: dir, title: title)
+            var vendorData: Data? = nil
+            if !vendor.isEmpty {
+                vendorData = try? Data(contentsOf: URL(fileURLWithPath: vendor))
+                if vendorData == nil {
+                    print("⚠️  vendor bundle not found at \(vendor); falling back to unpkg CDN")
+                }
+            }
+            try GalleryBuilder.write(to: dir, title: title, vendor: vendorData)
             let data = try GalleryBuilder.dataJSON(cards: cards)
             try data.write(to: dir.appendingPathComponent("data.json"), options: .atomic)
-            print("🖼️  gallery: \(cards.count) cards → \(dir.path)/")
+            print("🖼️  gallery: \(cards.count) cards → \(dir.path)/  (player: \(vendorData != nil ? "self-hosted" : "unpkg"))")
         }
     }
 }
